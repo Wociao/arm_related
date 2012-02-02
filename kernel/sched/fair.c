@@ -1079,17 +1079,34 @@ static inline u64 __synchronize_entity_decay(struct sched_entity *se)
 	return decays;
 }
 
+static inline void __update_task_entity_contrib(struct sched_entity *se)
+{
+	se->avg.load_avg_contrib = div64_u64(se->avg.runnable_avg_sum *
+					     se->load.weight,
+					     se->avg.runnable_avg_period + 1);
+}
+
+static inline void __update_group_entity_contrib(struct sched_entity *se)
+{
+	struct cfs_rq *cfs_rq = group_cfs_rq(se);
+	struct task_group *tg = cfs_rq->tg;
+
+	se->avg.load_avg_contrib = (cfs_rq->tg_load_contrib * tg->shares);
+	se->avg.load_avg_contrib /= atomic64_read(&tg->load_avg) + 1;
+}
+
 /* Compute the current contribution to load_avg by se, return any delta */
 static long __update_entity_load_avg_contrib(struct sched_entity *se)
 {
 	long old_contrib = se->avg.load_avg_contrib;
 
-	if (!entity_is_task(se))
-		return 0;
-
-	se->avg.load_avg_contrib = div64_u64(se->avg.runnable_avg_sum *
-					     se->load.weight,
-					     se->avg.runnable_avg_period + 1);
+	if (entity_is_task(se)) {
+		__update_task_entity_contrib(se);
+	} else {
+		if (!se->on_rq)
+			__synchronize_entity_decay(se);
+		__update_group_entity_contrib(se);
+	}
 
 	return se->avg.load_avg_contrib - old_contrib;
 }
