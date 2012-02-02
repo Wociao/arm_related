@@ -806,7 +806,7 @@ static inline long calc_tg_weight(struct task_group *tg, struct cfs_rq *cfs_rq)
 	 */
 	tg_weight = atomic64_read(&tg->load_avg);
 	tg_weight -= cfs_rq->tg_load_contrib;
-	tg_weight += cfs_rq->load.weight;
+	tg_weight += cfs_rq->runnable_load_avg + cfs_rq->blocked_load_avg;
 
 	return tg_weight;
 }
@@ -816,7 +816,7 @@ static long calc_cfs_shares(struct cfs_rq *cfs_rq, struct task_group *tg)
 	long tg_weight, load, shares;
 
 	tg_weight = calc_tg_weight(tg, cfs_rq);
-	load = cfs_rq->load.weight;
+	load = cfs_rq->runnable_load_avg + cfs_rq->blocked_load_avg;
 
 	shares = (tg->shares * load);
 	if (tg_weight)
@@ -3570,21 +3570,16 @@ next:
 /*
  * update tg->load_weight by folding this cpu's load_avg
  */
-static int update_shares_cpu(struct task_group *tg, int cpu)
+static void __update_blocked_averages_cpu(struct task_group *tg, int cpu)
 {
-	struct sched_entity *se;
-	struct cfs_rq *cfs_rq;
-	unsigned long flags;
+	struct sched_entity *se = tg->se[cpu];
+	struct cfs_rq *cfs_rq = tg->cfs_rq[cpu];
 	struct rq *rq;
 
+	/* throttled entities do not contribute to load */
+	if (throttled_hierarchy(cfs_rq))
+		return;
 
-	rq = cpu_rq(cpu);
-	se = tg->se[cpu];
-	cfs_rq = tg->cfs_rq[cpu];
-
-	raw_spin_lock_irqsave(&rq->lock, flags);
-
-	update_rq_clock(rq);
 	update_cfs_rq_blocked_load(cfs_rq, 1);
 
 	if (se) {
@@ -3597,29 +3592,39 @@ static int update_shares_cpu(struct task_group *tg, int cpu)
 		else
 			list_del_leaf_cfs_rq(cfs_rq);
 	}
-
-	raw_spin_unlock_irqrestore(&rq->lock, flags);
-
-	return 0;
 }
 
-static void update_shares(int cpu)
+static void update_blocked_averages(int cpu)
 {
-	struct cfs_rq *cfs_rq;
 	struct rq *rq = cpu_rq(cpu);
+	struct cfs_rq *cfs_rq;
+
+	unsigned long flags;
+	int num_updates = 0;
 
 	rcu_read_lock();
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	update_rq_clock(rq);
 	/*
 	 * Iterates the task_group tree in a bottom up fashion, see
 	 * list_add_leaf_cfs_rq() for details.
 	 */
 	for_each_leaf_cfs_rq(rq, cfs_rq) {
-		/* throttled entities do not contribute to load */
-		if (throttled_hierarchy(cfs_rq))
-			continue;
+		__update_blocked_averages_cpu(cfs_rq->tg, rq->cpu);
 
-		update_shares_cpu(cfs_rq->tg, cpu);
+		/*
+		 * Periodically release the lock so that a cfs_rq with many
+		 * children cannot hold it for an arbitrary period of time.
+		 */
+		if (num_updates++ % 20 == 0) {
+			raw_spin_unlock_irqrestore(&rq->lock, flags);
+			cpu_relax();
+			raw_spin_lock_irqsave(&rq->lock, flags);
+			update_rq_clock(rq);
+		}
 	}
+
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
 	rcu_read_unlock();
 }
 
@@ -3664,7 +3669,7 @@ static unsigned long task_h_load(struct task_struct *p)
 	return load;
 }
 #else
-static inline void update_shares(int cpu)
+static inline void update_blocked_averages(int cpu)
 {
 }
 
@@ -4691,7 +4696,7 @@ void idle_balance(int this_cpu, struct rq *this_rq)
 	 */
 	raw_spin_unlock(&this_rq->lock);
 
-	update_shares(this_cpu);
+	update_blocked_averages(this_cpu);
 	rcu_read_lock();
 	for_each_domain(this_cpu, sd) {
 		unsigned long interval;
@@ -4951,7 +4956,7 @@ static void rebalance_domains(int cpu, enum cpu_idle_type idle)
 	int update_next_balance = 0;
 	int need_serialize;
 
-	update_shares(cpu);
+	update_blocked_averages(cpu);
 
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
