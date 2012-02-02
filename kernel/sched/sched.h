@@ -112,6 +112,7 @@ struct task_group {
 	unsigned long shares;
 
 	atomic_t load_weight;
+	atomic64_t load_avg;
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -260,6 +261,7 @@ struct cfs_rq {
 	unsigned long load_contribution;
 
 	u64 runnable_load_avg, blocked_load_avg;
+	u64 tg_load_contrib;
 	atomic64_t decay_counter, removed_load;
 	u64 last_decay;
 #endif /* CONFIG_SMP */
