@@ -258,6 +258,8 @@ struct cfs_rq {
 	u64 load_stamp, load_last, load_unacc_exec_time;
 
 	unsigned long load_contribution;
+
+	u64 runnable_load_avg;
 #endif /* CONFIG_SMP */
 #ifdef CONFIG_CFS_BANDWIDTH
 	int runtime_enabled;
