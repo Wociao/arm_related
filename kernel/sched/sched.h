@@ -248,19 +248,6 @@ struct cfs_rq {
 	 */
 	unsigned long h_load;
 
-	/*
-	 * Maintaining per-cpu shares distribution for group scheduling
-	 *
-	 * load_stamp is the last time we updated the load average
-	 * load_last is the last time we updated the load average and saw load
-	 * load_unacc_exec_time is currently unaccounted execution time
-	 */
-	u64 load_avg;
-	u64 load_period;
-	u64 load_stamp, load_last, load_unacc_exec_time;
-
-	unsigned long load_contribution;
-
 	u32 tg_runnable_contrib;
 	u64 runnable_load_avg, blocked_load_avg;
 	u64 tg_load_contrib;
