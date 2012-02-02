@@ -260,7 +260,7 @@ struct cfs_rq {
 	unsigned long load_contribution;
 
 	u64 runnable_load_avg, blocked_load_avg;
-	atomic64_t decay_counter;
+	atomic64_t decay_counter, removed_load;
 	u64 last_decay;
 #endif /* CONFIG_SMP */
 #ifdef CONFIG_CFS_BANDWIDTH
@@ -562,6 +562,8 @@ static inline struct task_group *task_group(struct task_struct *p)
 	return autogroup_task_group(p, tg);
 }
 
+inline void remove_task_load_avg_async(struct task_struct *p);
+
 /* Change a task's cfs_rq and parent entity if it moves across CPUs/groups */
 static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 {
@@ -570,6 +572,9 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 #endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
+	/* if we're migrating a sleeping task we need to remove its load */
+	remove_task_load_avg_async(p);
+
 	p->se.cfs_rq = tg->cfs_rq[cpu];
 	p->se.parent = tg->se[cpu];
 #endif

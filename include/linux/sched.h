@@ -1138,6 +1138,8 @@ struct sched_avg {
 	u64 runnable_avg_sum, runnable_avg_period;
 	u64 last_runnable_update, decay_count;
 	unsigned long load_avg_contrib;
+
+	int contributes_blocked_load;
 };
 
 #ifdef CONFIG_SCHEDSTATS
