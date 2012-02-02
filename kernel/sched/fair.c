@@ -971,6 +971,108 @@ static inline void update_entity_shares_tick(struct cfs_rq *cfs_rq)
 }
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 
+#if defined(CONFIG_FAIR_GROUP_SCHED) && defined(CONFIG_SMP)
+/*
+ * Approximate:
+ *   val * y^n,    where y^32 ~= 0.5 (~1 scheduling period)
+ */
+static __always_inline u64 decay_load(u64 val, int n)
+{
+	for (;n && val;n--) {
+		val *= 4008;
+		val >>= 12;
+	}
+
+	return val;
+}
+
+/* We can represent the historical contribution to runnable average as the
+ * coefficients of a geometric series.  To do this we sub-divide our runnable
+ * history into segments of approximately 1ms (1024us); label the segment that
+ * occurred N-ms ago p_N, with p_0 corresponding to the current period, e.g.
+ *
+ * [<- 1024us ->|<- 1024us ->|<- 1024us ->| ...
+ *      p0            p1           p1
+ *     (now)       (~1ms ago)  (~2ms ago)
+ *
+ * Let u_i denote the fraction of p_i that the entity was runnable.
+ *
+ * We can then represent historical load-average using u_i as the co-efficients
+ * to for a geometric series.
+ *   u_0 + u_1*y + u_2*y^2 + u_3*y^3 + ...
+ *  (Taking the sum over the equivalently decayed period)
+ *
+ * We choose k to be approximately the width of a scheduling period, that is:
+ *   y^32 = 0.5
+ * This means that the contribution to load ~32ms ago will be weighted
+ * approximately half as much as the contribution to load within the last ms.
+ *
+ * When a period "rolls over" and we have new u_0`, we can multiply the
+ * previous sum again by k to update:
+ *   load_avg = u_0` + y*(u_0 + u_1*y + u_2*y^2 + ... )
+ *            = u_0 + u_1*y + u_2*y^2 + ... [re-labeling u_i --> u_{i+1]
+ */
+static __always_inline int __update_entity_runnable_avg(u64 now,
+							struct sched_avg *sa,
+							int runnable)
+{
+	u64 delta;
+	int delta_w, decayed = 0;
+
+	delta = now - sa->last_runnable_update;
+	if((s64)delta < 0) {
+		sa->last_runnable_update = now;
+		return 0;
+	}
+
+	/*
+	 * Use 1024us as the unit of measurement since it's a reasonable
+	 * approximation of 1ms and fast to compute.
+	 */
+	delta >>= 10;
+	if (!delta)
+		return 0;
+	sa->last_runnable_update = now;
+
+	delta_w = sa->runnable_avg_period % 1024;
+	if (delta + delta_w >= 1024) {
+		/* period roll-over */
+		decayed = 1;
+
+		delta_w = 1024 - delta_w;
+		BUG_ON(delta_w > delta);
+		do {
+			if (runnable)
+				sa->runnable_avg_sum += delta_w;
+			sa->runnable_avg_period += delta_w;
+
+			sa->runnable_avg_sum =
+				decay_load(sa->runnable_avg_sum, 1);
+			sa->runnable_avg_period =
+				decay_load(sa->runnable_avg_period, 1);
+
+			delta -= delta_w;
+			delta_w = 1024;
+		} while (delta >= 1024);
+	}
+
+	if (runnable)
+		sa->runnable_avg_sum += delta;
+	sa->runnable_avg_period += delta;
+
+	return decayed;
+}
+
+/* Update a sched_entity's runnable average */
+static inline void update_entity_load_avg(struct sched_entity *se)
+{
+	__update_entity_runnable_avg(rq_of(cfs_rq_of(se))->clock_task, &se->avg,
+				     se->on_rq);
+}
+#else
+static inline void update_entity_load_avg(struct sched_entity *se) {}
+#endif
+
 static void enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #ifdef CONFIG_SCHEDSTATS
@@ -1097,6 +1199,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 */
 	update_curr(cfs_rq);
 	update_cfs_load(cfs_rq, 0);
+	update_entity_load_avg(se);
 	account_entity_enqueue(cfs_rq, se);
 	update_cfs_shares(cfs_rq);
 
@@ -1171,6 +1274,7 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * Update run-time statistics of the 'current'.
 	 */
 	update_curr(cfs_rq);
+	update_entity_load_avg(se);
 
 	update_stats_dequeue(cfs_rq, se);
 	if (flags & DEQUEUE_SLEEP) {
@@ -1340,6 +1444,8 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 		update_stats_wait_start(cfs_rq, prev);
 		/* Put 'current' back into the tree. */
 		__enqueue_entity(cfs_rq, prev);
+		/* in !on_rq case, update occurred at dequeue */
+		update_entity_load_avg(prev);
 	}
 	cfs_rq->curr = NULL;
 }
@@ -1352,6 +1458,14 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 	 */
 	update_curr(cfs_rq);
 
+#if defined(CONFIG_FAIR_GROUP_SCHED) && defined(CONFIG_SMP)
+	/*
+	 * Ensure that runnable average is periodically updated.
+	 */
+	if (likely(curr->avg.last_runnable_update)) {
+		update_entity_load_avg(curr);
+	}
+#endif
 	/*
 	 * Update share accounting for long-running entities.
 	 */

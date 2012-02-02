@@ -85,6 +85,8 @@ static void print_cfs_group_stats(struct seq_file *m, int cpu, struct task_group
 	P(se->statistics.wait_count);
 #endif
 	P(se->load.weight);
+	P(se->avg.runnable_avg_sum);
+	P(se->avg.runnable_avg_period);
 #undef PN
 #undef P
 }
