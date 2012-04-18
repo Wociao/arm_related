@@ -1074,10 +1074,11 @@ static inline void __update_tg_runnable_avg(struct sched_avg *sa,
 	struct task_group *tg = cfs_rq->tg;
 	long contrib, usage_contrib;
 
-	contrib = (sa->runnable_avg_sum << 12) / (sa->runnable_avg_period + 1);
+
+	contrib = div64_u64((sa->runnable_avg_sum << 12), (sa->runnable_avg_period + 1));
 	contrib -= cfs_rq->tg_runnable_contrib;
 
-	usage_contrib = (sa->usage_avg_sum << 12) / (sa->runnable_avg_period + 1);
+	usage_contrib = div64_u64((sa->usage_avg_sum << 12), (sa->runnable_avg_period + 1));
 	usage_contrib -= cfs_rq->tg_usage_contrib;
 
 	if ((abs(contrib) > cfs_rq->tg_runnable_contrib/64) ||
@@ -1097,7 +1098,7 @@ static inline void __update_group_entity_contrib(struct sched_entity *se)
 	int runnable_avg;
 
 	se->avg.load_avg_contrib = (cfs_rq->tg_load_contrib * tg->shares);
-	se->avg.load_avg_contrib /= atomic64_read(&tg->load_avg) + 1;
+	se->avg.load_avg_contrib = div64_u64(se->avg.load_avg_contrib, atomic64_read(&tg->load_avg) + 1);
 
 	/*
 	 * Unlike a task-entity, a group entity may be using >=1 cpu globally.
