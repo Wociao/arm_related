@@ -1059,7 +1059,7 @@ static inline u64 __synchronize_entity_decay(struct sched_entity *se)
 
 static inline void __update_task_entity_contrib(struct sched_entity *se)
 {
-	se->avg.load_avg_contrib = div64_u64(se->avg.runnable_avg_sum *
+	se->avg.load_avg_contrib = div_u64(se->avg.runnable_avg_sum *
 					     se->load.weight,
 					     se->avg.runnable_avg_period + 1);
 }
@@ -1075,10 +1075,10 @@ static inline void __update_tg_runnable_avg(struct sched_avg *sa,
 	long contrib, usage_contrib;
 
 
-	contrib = div64_u64((sa->runnable_avg_sum << 12), (sa->runnable_avg_period + 1));
+	contrib = div_u64((sa->runnable_avg_sum << 12), (sa->runnable_avg_period + 1));
 	contrib -= cfs_rq->tg_runnable_contrib;
 
-	usage_contrib = div64_u64((sa->usage_avg_sum << 12), (sa->runnable_avg_period + 1));
+	usage_contrib = div_u64((sa->usage_avg_sum << 12), (sa->runnable_avg_period + 1));
 	usage_contrib -= cfs_rq->tg_usage_contrib;
 
 	if ((abs(contrib) > cfs_rq->tg_runnable_contrib/64) ||
