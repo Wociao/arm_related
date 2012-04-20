@@ -1135,7 +1135,7 @@ struct load_weight {
 };
 
 struct sched_avg {
-	u64 runnable_avg_sum, runnable_avg_period;
+	u32 runnable_avg_sum, runnable_avg_period;
 	u64 last_runnable_update, decay_count;
 	u32 usage_avg_sum;
 	unsigned long load_avg_contrib;
