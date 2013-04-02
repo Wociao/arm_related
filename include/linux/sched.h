@@ -959,6 +959,12 @@ struct sched_domain {
 	unsigned long span[0];
 };
 
+struct sched_domain_rq {
+	struct sched_domain *sd;
+	unsigned long flags;
+	struct rcu_head rcu;	/* used during destruction */
+};
+
 static inline struct cpumask *sched_domain_span(struct sched_domain *sd)
 {
 	return to_cpumask(sd->span);
@@ -1034,6 +1040,7 @@ struct sched_domain;
 #else
 #define ENQUEUE_WAKING		0
 #endif
+#define ENQUEUE_NEWTASK		8
 
 #define DEQUEUE_SLEEP		1
 
@@ -1160,13 +1167,7 @@ struct sched_entity {
 	struct cfs_rq		*my_q;
 #endif
 
-/*
- * Load-tracking only depends on SMP, FAIR_GROUP_SCHED dependency below may be
- * removed when useful for applications beyond shares distribution (e.g.
- * load-balance).
- */
-#if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
-	/* Per-entity load-tracking */
+#ifdef CONFIG_SMP
 	struct sched_avg	avg;
 #endif
 };
